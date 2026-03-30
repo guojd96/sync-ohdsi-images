@@ -1,11 +1,10 @@
 name: Sync OHDSI Images to Aliyun
 
 on:
-  # 手动触发，这样你可以控制何时同步
   workflow_dispatch:
     inputs:
-      image_name:
-        description: '镜像名称（如 ohdsi/webapi）'
+      image_full_name:
+        description: '原始镜像全名（如 ohdsi/webapi）'
         required: true
         default: 'ohdsi/webapi'
         type: string
@@ -14,18 +13,25 @@ on:
         required: true
         default: 'latest'
         type: string
+      repo_short_name:
+        description: '阿里云仓库短名（如 webapi）'
+        required: true
+        default: 'webapi'
+        type: string
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      # 步骤 1：安装 skopeo
+      # 安装 skopeo
       - name: Install skopeo
         run: |
-          sudo apt-get update
-          sudo apt-get install -y skopeo
+          wget https://github.com/lework/skopeo-binary/releases/download/v1.22.0/skopeo-linux-amd64
+          chmod +x skopeo-linux-amd64
+          sudo mv skopeo-linux-amd64 /usr/local/bin/skopeo
+          skopeo --version
 
-      # 步骤 2：登录阿里云镜像仓库
+      # 登录阿里云
       - name: Login to Aliyun ACR
         run: |
           skopeo login \
@@ -33,14 +39,18 @@ jobs:
             --password "${{ secrets.ALIYUN_PASSWORD }}" \
             "${{ secrets.ALIYUN_REGISTRY }}"
 
-      # 步骤 3：同步镜像（从 Docker Hub 到阿里云）
-      - name: Sync image to Aliyun
+      # 同步镜像
+      - name: Sync image
         run: |
-          echo "正在同步镜像: ${{ github.event.inputs.image_name }}:${{ github.event.inputs.image_tag }}"
-          skopeo copy \
-            --all \
-            docker://docker.io/${{ github.event.inputs.image_name }}:${{ github.event.inputs.image_tag }} \
-            docker://${{ secrets.ALIYUN_REGISTRY }}/${{ secrets.ALIYUN_NAMESPACE }}/${{ github.event.inputs.image_name }}:${{ github.event.inputs.image_tag }}
+          SOURCE="docker://docker.io/${{ github.event.inputs.image_full_name }}:${{ github.event.inputs.image_tag }}"
+          TARGET="docker://${{ secrets.ALIYUN_REGISTRY }}/${{ secrets.ALIYUN_NAMESPACE }}/${{ github.event.inputs.repo_short_name }}:${{ github.event.inputs.image_tag }}"
           
-          echo "同步完成！镜像地址："
-          echo "${{ secrets.ALIYUN_REGISTRY }}/${{ secrets.ALIYUN_NAMESPACE }}/${{ github.event.inputs.image_name }}:${{ github.event.inputs.image_tag }}"
+          echo "源: $SOURCE"
+          echo "目标: $TARGET"
+          
+          skopeo copy --all "$SOURCE" "$TARGET"
+          
+          echo "同步完成！"
+          echo ""
+          echo "拉取命令："
+          echo "docker pull ${{ secrets.ALIYUN_REGISTRY }}/${{ secrets.ALIYUN_NAMESPACE }}/${{ github.event.inputs.repo_short_name }}:${{ github.event.inputs.image_tag }}"
